@@ -1,0 +1,281 @@
+'''
+Copyright (C) 2018 Jean Da Costa machado.
+Jean3dimensional@gmail.com
+
+Created by Jean Da Costa machado
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+'''
+
+import bpy
+from .surface_particles import *
+from mathutils import bvhtree
+from . import ui
+
+
+def surface_snap(source_verts, tree):
+    for vert in source_verts:
+        final_co = None
+        start = vert.co
+        ray = vert.normal
+        location, normal, index, distance = tree.ray_cast(start, ray)
+        if location:
+            if normal.dot(vert.normal) > 0:
+                final_co = location
+        else:
+            location, normal, index, distance = tree.ray_cast(start, -ray)
+            if location:
+                if normal.dot(vert.normal) > 0:
+                    final_co = location
+        if final_co:
+            vert.co = final_co
+
+
+def triangle_quad_subdivide(obj):
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges, cuts=1, use_grid_fill=True, smooth=1)
+    collapse_edges = set()
+    for vert in bm.verts:
+        if len(vert.link_edges) not in {5,6}:
+            continue
+        if [len(face.verts) for face in vert.link_faces].count(3) == 1:
+            for face in vert.link_faces:
+                if len(face.verts) == 3:
+                    for edge in face.edges:
+                        if vert not in edge.verts:
+                            collapse_edges.add(edge)
+
+    bmesh.ops.collapse(bm, edges=list(collapse_edges))
+    triangulate_faces = set()
+    for vert in bm.verts:
+        if len(vert.link_faces) > 4 or len(vert.link_faces) == 3:
+            for face in vert.link_faces:
+                triangulate_faces.add(face)
+
+    geom = bmesh.ops.triangulate(bm, faces=list(triangulate_faces))
+
+    bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=180, angle_shape_threshold=180)
+    bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
+
+    bm.to_mesh(obj.data)
+
+
+class ParticleTest(bpy.types.Operator):
+    bl_idname = "tesselator2.remesh_particles"
+    bl_label = "Particle Remesh"
+    bl_description = ""
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+    _timer = None
+    _handle = None
+    counter = 0
+    bm = None
+    tree = None
+    initialized = False
+    algorithm_steps = None
+    solver = None
+
+    resolution = bpy.props.FloatProperty(
+        name="Resolution",
+        description="The amount of particles, (warning: Values above 100 may crash blender.)",
+        min=0,
+        default=60,
+    )
+    adaptive = bpy.props.FloatProperty(
+        name="Adaptive",
+        description="More detail in small regions (usually break topology flow)",
+        min=0,
+        max=0.9999,
+        default=0.05,
+    )
+    predecimation = bpy.props.FloatProperty(
+        name="Pre Decimation",
+        description="simplify geometry before spawning the particles (low values makes pre-computation faster.)",
+        min=0,
+        max=1,
+        default=0.1,
+    )
+    step_scale = bpy.props.FloatProperty(
+        name="Step Scale",
+        description="How fast the paticles move",
+        min=0.0001,
+        max=1,
+        default=0.1,
+    )
+    subdivisions = bpy.props.IntProperty(
+        name="Subdivisions",
+        description="How many final subdivisions",
+        default=2,
+        min=0
+    )
+    steps = bpy.props.IntProperty(
+        name="Relaxation Steps",
+        description="The number of \"Smoothing\" steps.",
+        default=25,
+        min=0
+    )
+    seeds = bpy.props.IntProperty(
+        name="Seeds",
+        description="How many initial sample points to grow the whole mesh.",
+        default=5,
+        min=0
+    )
+    x_mirror = bpy.props.BoolProperty(
+        name="X Mirror",
+        description="Force symmetry around X axis. Disable if your object isn't near symmetric",
+        default=True
+    )
+    use_gp = bpy.props.BoolProperty(
+        name="Use grease pencil",
+        description="Take grease pencil strokes as topology guides (it depends on the resolution to get good flow)"
+    )
+    allow_triangles = bpy.props.BoolProperty(
+        name="Allow Triangles",
+        description="Remesh with triangles and squares"
+    )
+    triangle_mode = bpy.props.BoolProperty(
+        name="Pure Triangles",
+        description="Remesh with triangles instead of squares"
+    )
+    particle_placement = bpy.props.EnumProperty(
+        name="Particle Placement",
+        description="How to place initial particles before relaxing it",
+        items=[("INTEGER_LATTICE", "Integer Lattice", "Creates a uniform grid."),
+               ("FAST_MARCHING", "Fast Marching", "Spread Particles following the curvature.")],
+        default="FAST_MARCHING"
+    )
+    show_advanced = bpy.props.BoolProperty(
+        name="Advanced Settings",
+        description="Show advanced settigns."
+    )
+
+    @classmethod
+    def poll(cls, context):
+        if context.active_object:
+            if context.active_object.type == "MESH":
+                return True
+
+    def stepper(self, context, event):
+        ui.feedback = ["Decimating domain."]
+        yield {"RUNNING_MODAL"}
+        yield {"RUNNING_MODAL"}
+
+        self.bm = bmesh.new()
+        self.bm.from_mesh(context.active_object.data)
+        self.tree = bvhtree.BVHTree.FromObject(context.active_object, context.scene)
+
+        md = context.active_object.modifiers.new(type="DECIMATE", name="Decimate")
+        md.ratio = self.predecimation
+        bpy.ops.object.modifier_apply(modifier=md.name)
+
+        ui.feedback = ["Building Direction Field."]
+        yield {"RUNNING_MODAL"}
+        self.solver = ParticleManager(context.active_object)
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(self.solver.draw_obj, (), "WINDOW", "POST_VIEW")
+        self.solver.build_field(context, self.use_gp, self.x_mirror)
+        self.bm.verts.ensure_lookup_table()
+
+        if self.triangle_mode:
+            self.solver.triangle_mode = True
+        self.bm.to_mesh(context.active_object.data)
+
+        if self.particle_placement == "FAST_MARCHING":
+            new_particles = False
+            if self.use_gp:
+                new_particles = self.solver.initialize_particles_from_gp(self.resolution, self.adaptive, context)
+                if self.x_mirror:
+                    self.solver.mirror_particles(any_side=True)
+            if not new_particles:
+                self.solver.initialize_random(self.bm.verts, self.resolution, self.adaptive, self.seeds)
+            while True:
+                ui.feedback = ["Spreading particles.."]
+                result = self.solver.spread_step()
+                yield {"RUNNING_MODAL"}
+                if not result:
+                    break
+        elif self.particle_placement == "INTEGER_LATTICE":
+            ui.feedback = ["Creating particles.."]
+            yield {"RUNNING_MODAL"}
+            self.solver.initialize_grid(self.bm.verts, self.resolution, self.x_mirror, self.adaptive)
+
+        if self.x_mirror:
+            self.solver.mirror_particles()
+
+        for i in range(self.steps):
+            self.solver.step(self.step_scale)
+            ui.feedback = ["Relaxation step.",
+                           str(int(i / self.steps * 100)) + "% Done.",
+                           "Press Esc to stop."]
+            yield {"RUNNING_MODAL"}
+
+        ui.feedback = ["Extracting Mesh."]
+        yield {"RUNNING_MODAL"}
+        yield {"RUNNING_MODAL"}
+
+        yield self.finish(context)
+
+    def invoke(self, context, event):
+        self._timer = context.window_manager.event_timer_add(0.01, context.window)
+        context.window_manager.modal_handler_add(self)
+        self.algorithm_steps = self.stepper(context, event)
+
+        self.initialized = False
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+
+        if event.type == "TIMER":
+            context.area.tag_redraw()
+            return next(self.algorithm_steps)
+
+        if event.type == "ESC":
+            return self.finish(context)
+
+        return {"PASS_THROUGH"}
+
+    def finish(self, context):
+        ui.feedback = []
+        context.window_manager.event_timer_remove(self._timer)
+        bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
+        bm = self.solver.simplify_mesh(self.bm)
+
+        for i in range(3):
+            bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
+            surface_snap(bm.verts, self.tree)
+
+        bm.to_mesh(context.active_object.data)
+        new_obj = context.active_object
+
+        for _ in range(self.subdivisions):
+            if not self.triangle_mode:
+                if self.allow_triangles:
+                    triangle_quad_subdivide(new_obj)
+                else:
+                    md = new_obj.modifiers.new(type="SUBSURF", name="SUBSURF")
+                    md.levels = 1
+                    bpy.ops.object.modifier_apply(modifier=md.name)
+                surface_snap(new_obj.data.vertices, self.tree)
+            else:
+                bmesh.ops.subdivide_edges(bm, edges=bm.edges, cuts=1, use_grid_fill=True)
+                surface_snap(bm.verts, self.tree)
+                bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
+
+        if self.triangle_mode:
+            surface_snap(bm.verts, self.tree)
+            bm.to_mesh(new_obj.data)
+        else:
+            surface_snap(new_obj.data.vertices, self.tree)
+
+        context.area.tag_redraw()
+        return {"FINISHED"}
