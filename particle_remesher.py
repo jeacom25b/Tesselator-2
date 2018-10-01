@@ -22,6 +22,7 @@ import bpy
 from .surface_particles import *
 from mathutils import bvhtree
 from . import ui
+import traceback
 
 
 def surface_snap(source_verts, tree):
@@ -29,15 +30,18 @@ def surface_snap(source_verts, tree):
         final_co = None
         start = vert.co
         ray = vert.normal
-        location, normal, index, distance = tree.ray_cast(start, ray)
-        if location:
-            if normal.dot(vert.normal) > 0:
-                final_co = location
+        location1, normal, index, distance1 = tree.ray_cast(start, ray)
+        location2, normal, index, distance2 = tree.ray_cast(start, -ray)
+        if location1 and location2:
+            final_co = location2 if distance2 < distance1 else location1
+        elif location1:
+            final_co = location1
+        elif location2:
+            final_co = location2
         else:
-            location, normal, index, distance = tree.ray_cast(start, -ray)
+            location, normal, index, distance = tree.find_nearest(vert.co)
             if location:
-                if normal.dot(vert.normal) > 0:
-                    final_co = location
+                final_co = location
         if final_co:
             vert.co = final_co
 
@@ -59,14 +63,25 @@ def triangle_quad_subdivide(obj):
 
     bmesh.ops.collapse(bm, edges=list(collapse_edges))
     triangulate_faces = set()
+    connect_verts = set()
     for vert in bm.verts:
-        if len(vert.link_faces) > 4 or len(vert.link_faces) == 3:
+        face_count = len(vert.link_faces)
+        if face_count > 4:
             for face in vert.link_faces:
                 triangulate_faces.add(face)
-
-    geom = bmesh.ops.triangulate(bm, faces=list(triangulate_faces))
-
-    bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=180, angle_shape_threshold=180)
+                for vert in face.verts:
+                    if len(vert.link_edges) == 4:
+                        connect_verts.add(vert)
+        elif face_count == 3:
+            for face in vert.link_faces:
+                triangulate_faces.add(face)
+                for vert in face.verts:
+                    if len(vert.link_edges) in {3, 5}:
+                            connect_verts.add(vert)
+    
+    bmesh.ops.connect_verts(bm, verts=list(connect_verts))
+    #bmesh.ops.triangulate(bm, faces=list(triangulate_faces))
+    bmesh.ops.join_triangles(bm, faces=bm.faces, angle_face_threshold=1.5, angle_shape_threshold=3.14)
     bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
 
     bm.to_mesh(obj.data)
@@ -152,13 +167,17 @@ class ParticleTest(bpy.types.Operator):
         name="Particle Placement",
         description="How to place initial particles before relaxing it",
         items=[("INTEGER_LATTICE", "Integer Lattice", "Creates a uniform grid."),
-               ("FAST_MARCHING", "Fast Marching", "Spread Particles following the curvature.")],
+               ("FAST_MARCHING", "Fast Marching", "Spread Particles following the curvature."),
+               ("ANOTHER_MESH", "Another Mesh", "Use vertices from another mesh as starting particles")],
         default="FAST_MARCHING"
     )
     show_advanced = bpy.props.BoolProperty(
         name="Advanced Settings",
         description="Show advanced settigns."
     )
+
+    def draw(self, context):
+        return
 
     @classmethod
     def poll(cls, context):
@@ -204,10 +223,20 @@ class ParticleTest(bpy.types.Operator):
                 yield {"RUNNING_MODAL"}
                 if not result:
                     break
+
         elif self.particle_placement == "INTEGER_LATTICE":
             ui.feedback = ["Creating particles.."]
             yield {"RUNNING_MODAL"}
             self.solver.initialize_grid(self.bm.verts, self.resolution, self.x_mirror, self.adaptive)
+
+        elif self.particle_placement == "ANOTHER_MESH":
+            objs = list(context.selected_objects)
+            for obj in objs:
+                if obj is not context.active_object:
+                    break
+            self.solver.initialize_from_verts(obj.data.vertices, self.adaptive)
+            if self.x_mirror:
+                self.solver.mirror_particles()
 
         if self.x_mirror:
             self.solver.mirror_particles()
@@ -234,15 +263,22 @@ class ParticleTest(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
+        try:
+            if event.type == "TIMER":
+                context.area.tag_redraw()
+                return next(self.algorithm_steps)
 
-        if event.type == "TIMER":
-            context.area.tag_redraw()
-            return next(self.algorithm_steps)
+            if event.type == "ESC":
+                return self.finish(context)
 
-        if event.type == "ESC":
-            return self.finish(context)
-
-        return {"PASS_THROUGH"}
+            return {"RUNNING_MODAL"}
+        except:
+            traceback.print_exc()
+            ui.feedback = []
+            context.window_manager.event_timer_remove(self._timer)
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
+            self.report({"ERROR"}, message="Something went wrong, remeshing couldn't finish, open console for details.")
+            return {"CANCELLED"}
 
     def finish(self, context):
         ui.feedback = []
@@ -269,7 +305,7 @@ class ParticleTest(bpy.types.Operator):
             else:
                 bmesh.ops.subdivide_edges(bm, edges=bm.edges, cuts=1, use_grid_fill=True)
                 surface_snap(bm.verts, self.tree)
-                bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
+                # bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
 
         if self.triangle_mode:
             surface_snap(bm.verts, self.tree)

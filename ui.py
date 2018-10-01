@@ -73,7 +73,7 @@ class TesselatorSettings(bpy.types.PropertyGroup):
     steps = bpy.props.IntProperty(
         name="Relaxation Steps",
         description="The number of \"Smoothing\" steps.",
-        default=25,
+        default=15,
         min=0
     )
     seeds = bpy.props.IntProperty(
@@ -104,7 +104,8 @@ class TesselatorSettings(bpy.types.PropertyGroup):
         name="Particle Placement",
         description="How to place initial particles before relaxing it",
         items=[("INTEGER_LATTICE", "Integer Lattice", "Creates a uniform grid."),
-               ("FAST_MARCHING", "Fast Marching", "Spread Particles following the curvature.")],
+               ("FAST_MARCHING", "Fast Marching", "Spread Particles following the curvature."),
+               ("ANOTHER_MESH", "Another Mesh", "Use vertices from another mesh as starting particles")],
         default="FAST_MARCHING"
     )
     show_advanced = bpy.props.BoolProperty(
@@ -112,20 +113,39 @@ class TesselatorSettings(bpy.types.PropertyGroup):
         description="Show advanced settigns."
     )
 
-
-
+class DecimationRemeshSettings(bpy.types.PropertyGroup):
+    simplification = bpy.props.IntProperty(
+        name="Simplification Factor",
+        default=30,
+        min=2,
+    )
+    allow_triangles = bpy.props.BoolProperty(
+        name="Allow Triangles",
+        description="Remesh with triangles and squares"
+    )
+    subdivisions = bpy.props.IntProperty(
+        name="SUbdivisions",
+        default=1,
+        min=0
+    )
+    triangle_mode = bpy.props.BoolProperty(
+        name="Pure Triangles",
+        description="Remesh with triangles instead of squares"
+    )
 def register():
     bpy.types.Scene.tesselator_addon_settings = bpy.props.PointerProperty(type=TesselatorSettings)
+    bpy.types.Scene.decimation_remesh_settings = bpy.props.PointerProperty(type=DecimationRemeshSettings)
     pass
 
 
 def unregister():
     del bpy.types.Scene.tesselator_addon_settings
+    del bpy.types.Scene.decimation_remesh_settings
 
 
 class TesselatorPanel(bpy.types.Panel):
     bl_idname = "tesselator2.panel"
-    bl_label = "Remesh"
+    bl_label = "Particle Remesh"
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     bl_category = "Tools"
@@ -147,19 +167,19 @@ class TesselatorPanel(bpy.types.Panel):
                 box.label(line)
             return
 
-        op = layout.operator("tesselator2.remesh_particles", icon="MOD_REMESH")
+        op = layout.operator("tesselator2.remesh_particles", icon="MOD_PARTICLES")
         col = layout.column(align=True)
         col.prop(settings, "resolution")
         col.prop(settings, "steps")
         col.prop(settings, "subdivisions")
         col.separator()
-        col.prop(settings, "x_mirror")
-        col.prop(settings, "use_gp")
-        col.prop(settings, "triangle_mode")
+        col.prop(settings, "x_mirror", toggle=True,icon="MOD_MIRROR")
+        col.prop(settings, "use_gp", toggle=True,icon="GREASEPENCIL")
+        col.prop(settings, "triangle_mode", toggle=True,icon="MESH_DATA")
         col1 = col.column()
         if settings.triangle_mode:
             col1.enabled = False
-        col1.prop(settings, "allow_triangles")
+        col1.prop(settings, "allow_triangles", toggle=True, icon="MOD_REMESH")
 
         box = col.box()
         box.operator("tesselator.show_advanced", emboss=False,
@@ -186,3 +206,27 @@ class TesselatorPanel(bpy.types.Panel):
         op.triangle_mode = settings.triangle_mode
         op.seeds = settings.seeds
         op.particle_placement = settings.particle_placement
+
+class DecimationRemesh(bpy.types.Panel):
+    bl_idname = "tesselator.decimation_remesh_panel"
+    bl_label = "Decimation Remesh"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_category = "Tools"
+    pool = TesselatorPanel.poll
+    def draw(self, context):
+        layout = self.layout
+        layout.label("Decim Remesh")
+        settings = context.scene.decimation_remesh_settings
+        op = layout.operator("tesselator2.decimation_remesh", icon="MOD_DECIM")
+        layout.prop(settings, "simplification")
+        layout.prop(settings, "triangle_mode", toggle=True,icon="MESH_DATA")
+        col = layout.column()
+        if settings.triangle_mode:
+            col.enabled = False
+        col.prop(settings, "allow_triangles", toggle=True, icon="MOD_REMESH")
+        layout.prop(settings, "subdivisions")
+        op.simplification = settings.simplification
+        op.triangle_mode = settings.triangle_mode
+        op.allow_triangles = settings.allow_triangles
+        op.subdivisions = settings.subdivisions

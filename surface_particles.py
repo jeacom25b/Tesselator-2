@@ -22,7 +22,6 @@ from . import vector_fields
 from . import draw_3d
 from mathutils import Vector
 from mathutils.kdtree import KDTree
-from mathutils import bvhtree
 from random import choice, random
 
 
@@ -85,6 +84,7 @@ class ParticleManager:
             last_particle.target_resolution = target_resolution
             last_particle.radius = target_resolution / (last_particle.last_hit.curvature * adaptive + (1 - adaptive))
             last_particle.adaptive = adaptive
+            last_particle.tag = "DONE"
             created_particles +=1
             for point in stroke.points:
                 co = self.inv_mat * point.co
@@ -94,7 +94,7 @@ class ParticleManager:
                     last_particle.radius = target_resolution / (
                                 last_particle.last_hit.curvature * adaptive + (1 - adaptive))
                     last_particle.adaptive = adaptive
-                    created_particles +=1
+                    created_particles += 1
         return created_particles
 
     def initialize_random(self, verts, resolution=20, adaptive=0, count=50):
@@ -107,6 +107,11 @@ class ParticleManager:
             p1.radius = target_resolution
             p1.target_resolution = target_resolution
             p1.adaptive = adaptive
+
+    def initialize_from_verts(self, verts, adaptive):
+        for vert in verts:
+            p = self.create_particle(Partile, vert.co)
+            p.adaptive = adaptive
 
     def initialize_grid(self, verts, resolution=20, use_x_mirror=True, adaptive=0):
         particle_locations = set()
@@ -143,7 +148,7 @@ class ParticleManager:
     def mirror_particles(self, any_side=False):
         new_particles = []
         for particle in self.particles:
-            if particle.location.x > particle.radius / 2 or any_side:
+            if particle.location.x > particle.radius or any_side:
                 co = particle.location.copy()
                 co.x *= -1
                 p1 = particle
@@ -154,6 +159,10 @@ class ParticleManager:
                 p1.counter_pair, p2.counter_pair = p2, p1
                 new_particles.append(p2)
                 new_particles.append(p1)
+            elif -particle.radius < particle.location.x < particle.radius:
+                new_particles.append(particle)
+                particle.lock_x = True
+
         self.particles = new_particles
         self.build_kdtree()
 
@@ -342,7 +351,7 @@ class Partile:
         angle = max(neighbor.normal.dot(self.normal), 0)
         if angle < 0:
             return Vector()
-        d = self.force_vector(neighbor.location)
+        d = self.force_vector(neighbor.location) * 2
 
         if not self.manager.triangle_mode:
             u = neighbor.last_hit.frame.get_nearest_vec(d) * neighbor.radius
@@ -361,7 +370,7 @@ class Partile:
         avg_dist = 0
 
         for neighbor, dist in self.manager.get_nearest(self.location, 9):
-            if dist == 0:
+            if dist < 0:
                 self.velocity = Vector((random() - 0.5, random() - 0.5, random() - 0.5)).normalized().cross(
                     self.normal) * 16 * self.radius
                 continue
@@ -394,7 +403,7 @@ class Partile:
             for p, dist in self.manager.get_nearest(self.location, 2):
                 if p is self:
                     continue
-                if p.tag == "REMOVE":
+                if p.tag in {"REMOVE", "DONE"}:
                     continue
                 if dist < ((self.radius + p.radius) / 2) * 1.5:
                     self.tag = "REMOVE"

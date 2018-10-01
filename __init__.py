@@ -19,14 +19,14 @@ Created by Jean Da Costa machado
 '''
 
 bl_info = {
-    "name": "Tesselator2",
+    "name": "Tesselator",
     "description": "retopology tools",
     "author": "Jean Da Costa Machado",
     "version": (1, 0, 4),
     "blender": (2, 79, 0),
     "wiki_url": "",
     "category": "Sculpt",
-    "location": "3D View > Tool shelf > Sculptkt \  Alt + W"}
+    "location": "3D View > Tool shelf > Remesh"}
 
 import bpy
 
@@ -38,6 +38,7 @@ modules = [
     "draw_3d",
     "vector_fields",
     "particle_remesher",
+    "decimation_remesh",
     "ui",
 ]
 
