@@ -97,11 +97,12 @@ class ParticleManager:
                     created_particles += 1
         return created_particles
 
-    def initialize_random(self, verts, resolution=20, adaptive=0, count=50):
+    def initialize_from_features(self, verts, resolution=20, adaptive=0, count=50):
         scale = max(self.obj.dimensions) / max(self.obj.scale)
         target_resolution = scale / resolution
-        for i in range(count):
-            vert = choice(verts)
+        verts = sorted(self.field.bm.verts, key=lambda v: self.field.sharpness_field[v.index], reverse=True)
+        for i in range(min(count, len(self.field.bm.verts))):
+            vert = verts[i]
             co = vert.co.copy()
             p1 = self.create_particle(Partile, co)
             p1.radius = target_resolution
@@ -177,7 +178,7 @@ class ParticleManager:
     def remove_particle(self, particle):
         self.particles.remove(particle)
 
-    def step(self, speed):
+    def step(self, speed,):
         new_tree = KDTree(len(self.particles))
         self.draw_obj.commands.clear()
         for id, particle in enumerate(self.particles):
@@ -423,7 +424,7 @@ class Partile:
                     p1 = Partile(hit.co, self.manager)
                     new_particles.append(p1)
                     curv = self.adaptive * hit.curvature + (1 - self.adaptive)
-                    p1.radius = self.radius = self.target_resolution / curv
+                    p1.radius = self.target_resolution / curv
                     p1.adaptive = self.adaptive
                     p1.target_resolution = self.target_resolution
                     self.tag = "DONE"

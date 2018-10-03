@@ -93,6 +93,7 @@ class FrameField:
         self.bm.faces.ensure_lookup_table()
         self.tree = bvhtree.BVHTree.FromBMesh(self.bm)
         self.vert_field = {}
+        self.sharpness_field = {}
         self.face_field = {}
         self.mesh_curvature = {}
         self.max_curvature = 0
@@ -117,6 +118,7 @@ class FrameField:
                     sum_curvature += edge_vec.dot(other_vert.normal - vert.normal) / le
             sum_curvature /= len(vert.link_edges)
             self.vert_field[vert.index] = CrossFrame(best_normal.cross(vert.normal), vert.normal, best_value)
+            self.sharpness_field[vert.index] = best_value
             self.mesh_curvature[vert.index] = sum_curvature
         self.max_curvature = max(self.mesh_curvature.values())
         self.min_curvature = min(self.mesh_curvature.values())

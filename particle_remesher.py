@@ -216,7 +216,7 @@ class ParticleTest(bpy.types.Operator):
                 if self.x_mirror:
                     self.solver.mirror_particles(any_side=True)
             if not new_particles:
-                self.solver.initialize_random(self.bm.verts, self.resolution, self.adaptive, self.seeds)
+                self.solver.initialize_from_features(self.bm.verts, self.resolution, self.adaptive, self.seeds)
             while True:
                 ui.feedback = ["Spreading particles.."]
                 result = self.solver.spread_step()
@@ -286,8 +286,8 @@ class ParticleTest(bpy.types.Operator):
         bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
         bm = self.solver.simplify_mesh(self.bm)
 
-        for i in range(3):
-            bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=1)
+        for i in range(5):
+            bmesh.ops.smooth_vert(bm, verts=bm.verts, use_axis_x=True, use_axis_y=True, use_axis_z=True, factor=0.5)
             surface_snap(bm.verts, self.tree)
 
         bm.to_mesh(context.active_object.data)
@@ -300,6 +300,7 @@ class ParticleTest(bpy.types.Operator):
                 else:
                     md = new_obj.modifiers.new(type="SUBSURF", name="SUBSURF")
                     md.levels = 1
+                    md.subdivision_type = "SIMPLE"
                     bpy.ops.object.modifier_apply(modifier=md.name)
                 surface_snap(new_obj.data.vertices, self.tree)
             else:
