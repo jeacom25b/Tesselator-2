@@ -300,7 +300,7 @@ class ParticleTest(bpy.types.Operator):
                 else:
                     md = new_obj.modifiers.new(type="SUBSURF", name="SUBSURF")
                     md.levels = 1
-                    md.subdivision_type = "SIMPLE"
+                    # md.subdivision_type = "SIMPLE"
                     bpy.ops.object.modifier_apply(modifier=md.name)
                 surface_snap(new_obj.data.vertices, self.tree)
             else:
