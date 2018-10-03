@@ -39,7 +39,6 @@ modules = [
     "vector_fields",
     "particle_remesher",
     "decimation_remesh",
-    "manual_remesh",
     "ui",
 ]
 
