@@ -223,6 +223,9 @@ class ParticleTest(bpy.types.Operator):
                 yield {"RUNNING_MODAL"}
                 if not result:
                     break
+            for i in range(2):
+                self.solver.spread_step()
+
 
         elif self.particle_placement == "INTEGER_LATTICE":
             ui.feedback = ["Creating particles.."]

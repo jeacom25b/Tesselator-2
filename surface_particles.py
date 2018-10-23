@@ -84,7 +84,6 @@ class ParticleManager:
             last_particle.target_resolution = target_resolution
             last_particle.radius = target_resolution / (last_particle.last_hit.curvature * adaptive + (1 - adaptive))
             last_particle.adaptive = adaptive
-            last_particle.tag = "DONE"
             created_particles +=1
             for point in stroke.points:
                 co = self.inv_mat * point.co
@@ -155,12 +154,14 @@ class ParticleManager:
                 p1 = particle
                 p2 = Partile(co, self)
                 p2.radius = p1.radius
+                p2.tag = p1.tag
                 p2.adaptive = p1.adaptive
                 p2.target_resolution = p1.target_resolution
                 p1.counter_pair, p2.counter_pair = p2, p1
                 new_particles.append(p2)
                 new_particles.append(p1)
-            elif -particle.radius < particle.location.x < particle.radius:
+
+            elif -particle.radius * 0.5 < particle.location.x < particle.radius * 0.5:
                 new_particles.append(particle)
                 particle.lock_x = True
 
@@ -404,7 +405,7 @@ class Partile:
             for p, dist in self.manager.get_nearest(self.location, 2):
                 if p is self:
                     continue
-                if p.tag in {"REMOVE", "DONE"}:
+                if p.tag in {"REMOVE"}:
                     continue
                 if dist < ((self.radius + p.radius) / 2) * 1.5:
                     self.tag = "REMOVE"

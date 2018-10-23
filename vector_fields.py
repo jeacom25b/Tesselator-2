@@ -20,6 +20,7 @@ Created by Jean Da Costa machado
 
 import bmesh
 from mathutils import Vector, bvhtree, Matrix, geometry
+from random import random
 
 
 
@@ -32,10 +33,13 @@ class HitInfo:
         self.curvature_signed = geometry.barycentric_transform(location, *verts, *curvature).z
         self.curvature = max(self.curvature_signed, -self.curvature_signed)
         self.normal = normal
-        co = face.verts[0]
-        vec = field.vert_field[co.index].u
-        vecs = [field.vert_field[vert.index].get_nearest_vec(vec) for vert in face.verts]
-        vec = geometry.barycentric_transform(location, *verts, *vecs)
+        try:
+            co = face.verts[0]
+            vec = field.vert_field[co.index].u
+            vecs = [field.vert_field[vert.index].get_nearest_vec(vec) for vert in face.verts]
+            vec = geometry.barycentric_transform(location, *verts, *vecs)
+        except KeyError:
+            vec = Vector((random(), random(), random())).cross(normal).normalized()
         self.frame = CrossFrame(vec, self.normal)
 
         self.face = face_index
