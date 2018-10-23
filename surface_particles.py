@@ -84,14 +84,14 @@ class ParticleManager:
             last_particle.target_resolution = target_resolution
             last_particle.radius = target_resolution / (last_particle.last_hit.curvature * adaptive + (1 - adaptive))
             last_particle.adaptive = adaptive
-            created_particles +=1
+            created_particles += 1
             for point in stroke.points:
                 co = self.inv_mat * point.co
                 if (co - last_particle.location).length >= last_particle.radius * 2:
                     last_particle = self.create_particle(Partile, co)
                     last_particle.target_resolution = target_resolution
                     last_particle.radius = target_resolution / (
-                                last_particle.last_hit.curvature * adaptive + (1 - adaptive))
+                            last_particle.last_hit.curvature * adaptive + (1 - adaptive))
                     last_particle.adaptive = adaptive
                     created_particles += 1
         return created_particles
@@ -99,7 +99,8 @@ class ParticleManager:
     def initialize_from_features(self, verts, resolution=20, adaptive=0, count=50):
         scale = max(self.obj.dimensions) / max(self.obj.scale)
         target_resolution = scale / resolution
-        verts = sorted(self.field.bm.verts, key=lambda v: self.field.sharpness_field[v.index], reverse=True)
+        verts = sorted(self.field.bm.verts, key=lambda v: self.field.sharpness_field.get(v.index, float("inf")),
+                       reverse=True)
         for i in range(min(count, len(self.field.bm.verts))):
             vert = verts[i]
             co = vert.co.copy()
@@ -179,7 +180,7 @@ class ParticleManager:
     def remove_particle(self, particle):
         self.particles.remove(particle)
 
-    def step(self, speed,):
+    def step(self, speed, ):
         new_tree = KDTree(len(self.particles))
         self.draw_obj.commands.clear()
         for id, particle in enumerate(self.particles):

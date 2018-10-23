@@ -22,7 +22,7 @@ bl_info = {
     "name": "Tesselator",
     "description": "retopology tools",
     "author": "Jean Da Costa Machado",
-    "version": (1, 0, 4),
+    "version": (1, 0, 0),
     "blender": (2, 79, 0),
     "wiki_url": "",
     "category": "Sculpt",
